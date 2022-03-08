@@ -2,7 +2,7 @@ from player import Player
 from random import random
 
 
-class Random_player(Player):
+class RandomPlayer(Player):
     def __init__(self, color):
         super().__init__(color)
 

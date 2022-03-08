@@ -1,5 +1,6 @@
 import pygame
 from board import Tile
+from threading import Thread
 
 class Hex_Renderer:
     white_hex = pygame.image.load("white_hex.png")
@@ -12,26 +13,44 @@ class Hex_Renderer:
         self.clock = None
         self.width = width
         self.height = height
-        self.start()
         self.updates = 0
+        self.thread = None
+        self.hexes = []
+        self.updated = False
+        self.done = False
         print("Width: " + str(self.width) + ", Height: " + str(self.height))
 
-
+        self.start()
 
 
     def start(self):
         pygame.init()
         self.display = pygame.display.set_mode((self.width, self.height))
         self.clock = pygame.time.Clock()
+        self.thread = Thread(target=self.update)
+        self.done = False
+        self.thread.start()
 
 
+    def update_hexes(self,hexes):
+        self.hexes = hexes
+        self.updated = False
+        if self.done:
+            self.start()
 
-    def update(self,hexes):
-        self.display.fill((255,255,255))
-        for i in range(len(hexes)):
-            for j in range(len(hexes)):
-                self.draw_hex(hexes[j][i])
-        pygame.display.update()
+    def kill(self):
+        self.done = True
+        self.thread.join()
+
+    def update(self):
+        while not self.done:
+            if not self.updated:
+                self.display.fill((255,255,255))
+                for i in range(len(self.hexes)):
+                    for j in range(len(self.hexes)):
+                        self.draw_hex(self.hexes[j][i])
+                pygame.display.update()
+                self.updated = True
 
 
     def draw_hex(self,hex):
