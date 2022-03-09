@@ -1,15 +1,24 @@
+def generate_initial_moves(size):
+    return {(row, col) for row in range(size) for col in range(size)}
+
 class Board:
 
     def __init__(self, size=11):
         self.tiles = [[Tile([j, i]) for i in range(size)] for j in range(size)]
         self.size = size
+        self.legal_moves = generate_initial_moves(size)
 
     def can_place(self, position):
         return self.tiles[position[0]][position[1]].state == Tile.states['empty']
+
+    def get_legal_moves(self):
+        return self.legal_moves
+
     # position = position in list / tuple
     # type = "black" or "white"
     def place(self, position, type):
         self.tiles[position[0]][position[1]] = Tile(position, state=type)
+        self.legal_moves.remove(position)
 
     # black connects top bottom, white left and right
     def check_win(self, type):
@@ -17,37 +26,30 @@ class Board:
             for column in range(self.size):
                 if self.tiles[0][column].state == Tile.states[type]:
                     # do bfs
-
                     frontier = [self.tiles[0][column]]
                     visited = []
                     while len(frontier) != 0:
-
                         curr = frontier.pop()
                         visited.append(curr)
-
                         if curr.position[0] == self.size - 1:
                             return True
                         # lovely one liner to add to frontier
-                        frontier.extend(filter(lambda t: t.state == Tile.states[type] and not t in visited,
+                        frontier.extend(filter(lambda t: t.state == Tile.states[type] and t not in visited,
                                                self.get_adjacent_tiles(curr.position)))
         elif type == 'white':
             for row in range(self.size):
                 if self.tiles[row][0].state == Tile.states[type]:
                     # do bfs
-
                     frontier = [self.tiles[row][0]]
                     visited = []
-                    #print()
                     while len(frontier) != 0:
-                        #print([str(x.position) for x in frontier])
                         curr = frontier.pop()
                         visited.append(curr)
-
 
                         if curr.position[1] == self.size - 1:
                             return True
                         # lovely one liner to add to frontier
-                        frontier.extend(filter(lambda t: t.state == Tile.states[type] and not t in visited,
+                        frontier.extend(filter(lambda t: t.state == Tile.states[type] and t not in visited,
                                                self.get_adjacent_tiles(curr.position)))
         return False
 
@@ -93,10 +95,12 @@ class Board:
 
     def clone(self):
         out = Board(size=self.size)
+        out.legal_moves = self.legal_moves.copy()
         for i in range(self.size):
             for j in range(self.size):
                 out.tiles[i][j].state = self.tiles[i][j].state
         return out
+
 
 class Tile:
     states = {'empty': 0, 'black': -1, 'white': 1}

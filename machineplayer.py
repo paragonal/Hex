@@ -13,10 +13,11 @@ from time import time
 class MachinePlayer(Player):
     checkpoint_path = "training_1/cp.ckpt"
     checkpoint_dir = os.path.dirname(checkpoint_path)
-
     cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_path,
                                                      save_weights_only=True,
                                                      verbose=1)
+
+
 
     def __init__(self, color, board_size=7):
         super().__init__(color)
@@ -37,13 +38,17 @@ class MachinePlayer(Player):
         self.rewards = []
         self.targets = []
 
+        self.branching_factor = 1
+        self.tree_discount_factor = 0.95
+        self.calls = 0
+
         self.model.summary()
 
     def make_model(self):
         model = Sequential()
         model.add(Dense(self.board_size ** 2, input_dim=self.board_size ** 2))
         model.add(Dense(self.board_size ** 2))
-        model.add(Dense(self.board_size ** 2, activation='sigmoid'))
+        model.add(Dense(1, activation='sigmoid'))
         model.add(Softmax())
         model.compile(loss="mean_squared_error",
                       optimizer=Adam(lr=self.learning_rate))
@@ -85,7 +90,55 @@ class MachinePlayer(Player):
         self.outputs = self.outputs[-self.memory_size:]
         self.rewards = self.rewards[-self.memory_size:]
 
-    def place(self, board):
+    # Use a Monte Carlo Search Tree to get down to a final position to evaluate a node's value
+    # black win = eval -1
+    # white win = eval 1
+    def eval_node(self, board, active_color):
+
+        if self.calls % 100 == 0: print("Calls: ", self.calls)
+        self.calls += 1
+        if board.check_win('black'):
+            return 1
+        if board.check_win('white'):
+            return -1
+        moves = self.select_moves(board, self.branching_factor)
+        boards = []
+        values = []
+        next_color = 'white' if active_color == 'black' else 'black'
+        for move in moves:
+            temp = board.clone()
+            temp.place(move, next_color)
+            boards.append(temp)
+        for board in boards:
+            values.append(self.tree_discount_factor * self.eval_node(board, next_color))
+        return sum(values)
+
+    # select our moves for MCTS, this will eventually be based on the network
+    def select_moves(self, board, n):
+        # randomly choose moves
+        if n > len(board.get_legal_moves()):
+            return board.get_legal_moves()
+        return sample(board.get_legal_moves(), n)
+
+    def get_move_MCTS(self, board):
+        max_move = (None, -2) # tuples with the move and eval
+        min_move = (None, 2)
+
+        for move in board.get_legal_moves():
+            temp = board.clone()
+            temp.place(move, self.color)
+            val = self.eval_node(temp, self.color)
+            if val > max_move[1]:
+                max_move = (move, val)
+            if val < min_move[1]:
+                min_move = (move, val)
+
+        if self.color == 'black':
+            return min_move[0]
+        else:
+            return max_move[0]
+
+    def get_move(self, board):
         side = 1 if self.color == 'black' else -1
         input = side * np.array(board.get_integer_representation())
         e = input.flatten().reshape(1, board.size ** 2)

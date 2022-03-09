@@ -12,7 +12,7 @@ def start():
     white_wins = 0
     black_wins = 0
     p1 = MachinePlayer('black', board_size=size)
-    p2 = MachinePlayer('white', board_size=size)
+    p2 = RandomPlayer('white', board_size=size)
     for i in range(1000):
         black_win = False
 
@@ -20,7 +20,8 @@ def start():
         renderer.update_hexes(board.tiles)
         running = True
         while running:
-            board.place(p1.place(board), p1.color)
+            sleep(.5)
+            board.place(p1.get_move_MCTS(board), p1.color)
             renderer.update_hexes(board.tiles)
             if board.check_win(p1.color):
                 black_win = True
@@ -37,10 +38,10 @@ def start():
                 running = False
                 white_wins += 1
 
-        if black_win:
-            p1.train(1)
-        else:
-            p2.train(1)
+        # if black_win:
+        #     p1.train(1)
+        # else:
+        #     p2.train(1)
 
         print("White wins: %d, Black Wins: %d" % (white_wins, black_wins))
         renderer.kill()
