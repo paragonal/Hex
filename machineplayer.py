@@ -8,6 +8,7 @@ from random import random, sample
 import os
 import threading
 from time import time
+from collections import defaultdict
 
 
 class MachinePlayer(Player):
@@ -17,7 +18,9 @@ class MachinePlayer(Player):
                                                      save_weights_only=True,
                                                      verbose=1)
 
-
+    # map an integer representation of a board to a list of evals
+    position_lookup_table = defaultdict(lambda: [])
+    solved_positions = {}
 
     def __init__(self, color, board_size=7):
         super().__init__(color)
@@ -40,8 +43,9 @@ class MachinePlayer(Player):
 
         self.branching_factor = 1
         self.tree_discount_factor = 0.95
+        self.MCTS_iters = 10
         self.calls = 0
-
+        self.overlaps = 0
         self.model.summary()
 
     def make_model(self):
@@ -94,13 +98,20 @@ class MachinePlayer(Player):
     # black win = eval -1
     # white win = eval 1
     def eval_node(self, board, active_color):
-
-        if self.calls % 100 == 0: print("Calls: ", self.calls)
         self.calls += 1
         if board.check_win('black'):
+            MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()].append(1)
             return 1
         if board.check_win('white'):
+            MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()].append(-1)
             return -1
+
+        v = MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()]
+        if len(v) > 10 and np.std(v) < .1:
+            self.overlaps += 1
+            MachinePlayer.solved_positions[str(board.get_integer_representation())] = (np.mean(v), np.std(v))
+            return np.mean(v)
+
         moves = self.select_moves(board, self.branching_factor)
         boards = []
         values = []
@@ -111,7 +122,10 @@ class MachinePlayer(Player):
             boards.append(temp)
         for board in boards:
             values.append(self.tree_discount_factor * self.eval_node(board, next_color))
-        return sum(values)
+
+        MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()].append(np.mean(values))
+
+        return np.mean(values)
 
     # select our moves for MCTS, this will eventually be based on the network
     def select_moves(self, board, n):
@@ -125,9 +139,15 @@ class MachinePlayer(Player):
         min_move = (None, 2)
 
         for move in board.get_legal_moves():
-            temp = board.clone()
-            temp.place(move, self.color)
-            val = self.eval_node(temp, self.color)
+            vals = []
+
+            # do a bunch of fully random searches from root node to evaluate it
+            for _ in range(self.MCTS_iters):
+                temp = board.clone()
+                temp.place(move, self.color)
+                vals.append(self.eval_node(temp, self.color))
+            val = np.mean(vals)
+
             if val > max_move[1]:
                 max_move = (move, val)
             if val < min_move[1]:

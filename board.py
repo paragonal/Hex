@@ -1,8 +1,11 @@
+import numpy as np
+
+
 def generate_initial_moves(size):
     return {(row, col) for row in range(size) for col in range(size)}
 
-class Board:
 
+class Board:
     def __init__(self, size=11):
         self.tiles = [[Tile([j, i]) for i in range(size)] for j in range(size)]
         self.size = size
@@ -91,7 +94,7 @@ class Board:
             for tile in row:
                 out_row.append(tile.state)
             out.append(out_row)
-        return out
+        return np.array(out)
 
     def clone(self):
         out = Board(size=self.size)
@@ -101,6 +104,21 @@ class Board:
                 out.tiles[i][j].state = self.tiles[i][j].state
         return out
 
+    def recalc_legal_moves(self):
+        self.legal_moves = {(row, col) for row in range(self.size) for col in range(self.size)
+                           if self.tiles[row][col].state == 0}
+
+    def generate_flips(self):
+        outs = []
+
+        out = Board(size=self.size)
+        for i in range(self.size):
+            for j in range(self.size):
+                out.tiles[i][j].state = self.tiles[-i-1][-j-1].state
+        out.recalc_legal_moves()
+        outs.append(out)
+
+        return outs
 
 class Tile:
     states = {'empty': 0, 'black': -1, 'white': 1}
