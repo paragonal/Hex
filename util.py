@@ -10,7 +10,8 @@ def parse_solver_file(filename, visualize=False):
         renderer = Hex_Renderer(height=size * 30 * 2, width=(2 + size) * 30)
         renderer.kill()
     with open(filename, 'r') as f:
-        out_map = {}
+        board_list = []
+        score_list = []
         data = f.readline()[1:-1]
         data = data.split(", '")
         # print(data[:5])
@@ -19,11 +20,13 @@ def parse_solver_file(filename, visualize=False):
         for l in tqdm(data):
             count += 1
             board, score = parse_board(l)
-            out_map[str(board.get_integer_representation())] = (score[0], score[1])
+            board_list.append(board)
+            score_list.append(score)
 
             # add flipped board to expand training data
             for b in board.generate_flips():
-                out_map[str(b.get_integer_representation())] = (score[0], score[1])
+                board_list.append(b)
+                score_list.append(score)
             # add rotations
 
         if visualize:
@@ -35,7 +38,7 @@ def parse_solver_file(filename, visualize=False):
                 renderer.kill()
     f.close()
 
-    return out_map
+    return board_list, score_list
 
 
 def parse_board(s):
@@ -52,4 +55,4 @@ def parse_board(s):
 
 
 if __name__ == '__main__':
-    parse_solver_file("solved_positions2.txt", visualize=True)
+    parse_solver_file("solved_positions2.txt")

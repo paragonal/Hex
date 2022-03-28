@@ -2,7 +2,7 @@ import numpy as np
 
 
 def generate_initial_moves(size):
-    return {(row, col) for row in range(size) for col in range(size)}
+    return [(row, col) for row in range(size) for col in range(size)]
 
 
 class Board:
@@ -105,8 +105,8 @@ class Board:
         return out
 
     def recalc_legal_moves(self):
-        self.legal_moves = {(row, col) for row in range(self.size) for col in range(self.size)
-                           if self.tiles[row][col].state == 0}
+        self.legal_moves = [(row, col) for row in range(self.size) for col in range(self.size)
+                           if self.tiles[row][col].state == 0]
 
     def generate_flips(self):
         outs = []

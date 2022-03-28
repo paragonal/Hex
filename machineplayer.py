@@ -1,3 +1,5 @@
+from tensorflow.python.keras.optimizers import SGD
+
 from player import Player
 from keras.models import Sequential
 from keras.layers import Dense, Softmax
@@ -17,7 +19,6 @@ class MachinePlayer(Player):
     cp_callback = tf.keras.callbacks.ModelCheckpoint(filepath=checkpoint_path,
                                                      save_weights_only=True,
                                                      verbose=1)
-
     # map an integer representation of a board to a list of evals
     position_lookup_table = defaultdict(lambda: [])
     solved_positions = {}
@@ -31,7 +32,7 @@ class MachinePlayer(Player):
         self.epsilon = .99
         self.epsilon_min = 0.01
         self.epsilon_decay = 0.99
-        self.learning_rate = 1
+        self.learning_rate = .0025
 
         self.model = self.make_model()
 
@@ -46,65 +47,99 @@ class MachinePlayer(Player):
         self.MCTS_iters = 10
         self.calls = 0
         self.overlaps = 0
-        self.model.summary()
+        self.positions_evaled = 0
+        # self.model.summary()
 
     def make_model(self):
         model = Sequential()
         model.add(Dense(self.board_size ** 2, input_dim=self.board_size ** 2))
-        model.add(Dense(self.board_size ** 2))
-        model.add(Dense(1, activation='sigmoid'))
-        model.add(Softmax())
+        model.add(Dense(self.board_size ** 3))
+        model.add(Dense(self.board_size ** 3, activation='tanh'))
+        model.add(Dense(self.board_size ** 3, activation='tanh'))
+        model.add(Dense(self.board_size ** 3))
+        model.add(Dense(1, activation='tanh'))
         model.compile(loss="mean_squared_error",
-                      optimizer=Adam(lr=self.learning_rate))
-
+                      optimizer=tf.keras.optimizers.SGD(lr=self.learning_rate))
         return model
 
-    def train(self, reward):
-        print("Training for episode!")
-        width = len(self.inputs)
+    # evaluate a node with iterative deepening down to a certain position
+    def eval_node_network(self, board, active_color, depth, max_depth, branching_factor):
+        self.positions_evaled+=1
+        # print(board)
+        # print("evaled ", self.positions_evaled)
+        if board.check_win('black'):
+            return -1
+        if board.check_win('white'):
+            return 1
 
-        # every move in the game gets a reward based on how recent it was
-        #self.rewards.extend(np.linspace(0, reward, width))
-        self.rewards.extend([reward/width for _ in range(width)])
+        if depth == max_depth:
+            return self.model.predict(np.array([board.get_integer_representation().flatten()]))[0]
 
-        X = np.array(self.inputs).reshape(width, self.board_size ** 2)
-        outputs = np.array(self.outputs).reshape(width, self.board_size ** 2)
+        evals = [i[0] for i in self.evaluate_moves(board, board.get_legal_moves(), active_color)]
+        # get indices of branching_factor largest elements
+        if branching_factor < len(evals):
+            if active_color == 'black':
+                candidate_indices = np.argpartition(evals, -branching_factor)[-branching_factor:]
+            else:
+                candidate_indices = np.argpartition(evals, branching_factor)[:branching_factor]
+        else:
+            candidate_indices = [i for i in range(branching_factor)]
+        # search on each of these moves
+        boards = []
+        values = []
+        next_color = 'white' if active_color == 'black' else 'black'
 
-        target_qs = []
+        if len(candidate_indices) > len(board.get_legal_moves()):
+            moves = board.get_legal_moves()
+        else:
+            moves = [board.get_legal_moves()[i] for i in candidate_indices]
 
-        for frame in range(len(X) - 1):
-            # Q learning equation to determine new Q
-            Q = outputs[frame] + self.learning_rate \
-                * (self.gamma * outputs[frame + 1] + self.rewards[frame] - outputs[frame])
-            Q = np.array(Q) / sum(Q)
-            target_qs.append(Q)
+        for move in moves:
+            temp = board.clone()
+            temp.place(move, next_color)
+            boards.append(temp)
 
-        print("Difference: ", sum((Q-outputs[frame])**2))
+        for board in boards:
+            values.append(self.tree_discount_factor
+                          * self.eval_node_network(board, next_color, depth+1, max_depth, branching_factor))
 
-        target_qs = np.array(target_qs).reshape(width - 1, self.board_size ** 2)
-        # Try to fit model to new Q
-        X = X[:-1]
-        self.model.fit(x=X
-                       , y=target_qs
-                       , callbacks=[MachinePlayer.cp_callback])
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        if active_color == 'white':
+            return max(values)
+        else:
+            return min(values)
 
-        print("New epsilon=%f" % self.epsilon)
-        self.inputs = self.inputs[-self.memory_size:]
-        self.outputs = self.outputs[-self.memory_size:]
-        self.rewards = self.rewards[-self.memory_size:]
+    def get_move_network(self, board, max_depth, branching_factor):
+        vals = []
+        self.positions_evaled = 0
+        for move in board.get_legal_moves():
+            temp = board.clone()
+            temp.place(move, self.color)
+            vals.append(self.eval_node_network(temp, self.color, 0, max_depth, branching_factor))
+
+        if self.color == 'black':
+            return board.get_legal_moves()[np.argmin(vals)]
+        else:
+            return board.get_legal_moves()[np.argmax(vals)]
+
+    def evaluate_moves(self, board, moves, active_color):
+        to_eval = []
+        for move in moves:
+            temp = board.clone()
+            temp.place(move, active_color)
+            to_eval.append(temp.get_integer_representation().flatten())
+        return -self.model.predict(np.array(to_eval)) #TODO take out this negative when signs fixed on lookup table
 
     # Use a Monte Carlo Search Tree to get down to a final position to evaluate a node's value
     # black win = eval -1
     # white win = eval 1
-    def eval_node(self, board, active_color):
+    def eval_node_MCST(self, board, active_color):
         self.calls += 1
         if board.check_win('black'):
-            MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()].append(1)
-            return 1
-        if board.check_win('white'):
             MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()].append(-1)
             return -1
+        if board.check_win('white'):
+            MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()].append(1)
+            return 1
 
         v = MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()]
         if len(v) > 10 and np.std(v) < .1:
@@ -112,7 +147,7 @@ class MachinePlayer(Player):
             MachinePlayer.solved_positions[str(board.get_integer_representation())] = (np.mean(v), np.std(v))
             return np.mean(v)
 
-        moves = self.select_moves(board, self.branching_factor)
+        moves = self.select_moves_MCTS(board, self.branching_factor)
         boards = []
         values = []
         next_color = 'white' if active_color == 'black' else 'black'
@@ -121,31 +156,31 @@ class MachinePlayer(Player):
             temp.place(move, next_color)
             boards.append(temp)
         for board in boards:
-            values.append(self.tree_discount_factor * self.eval_node(board, next_color))
+            values.append(self.tree_discount_factor * self.eval_node_MCST(board, next_color))
 
         MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()].append(np.mean(values))
 
         return np.mean(values)
 
     # select our moves for MCTS, this will eventually be based on the network
-    def select_moves(self, board, n):
+    def select_moves_MCTS(self, board, n):
         # randomly choose moves
         if n > len(board.get_legal_moves()):
             return board.get_legal_moves()
         return sample(board.get_legal_moves(), n)
 
     def get_move_MCTS(self, board):
-        max_move = (None, -2) # tuples with the move and eval
+        max_move = (None, -2)  # tuples with the move and eval
         min_move = (None, 2)
 
         for move in board.get_legal_moves():
             vals = []
-
             # do a bunch of fully random searches from root node to evaluate it
             for _ in range(self.MCTS_iters):
                 temp = board.clone()
                 temp.place(move, self.color)
-                vals.append(self.eval_node(temp, self.color))
+                vals.append(self.eval_node_MCST(temp, self.color))
+
             val = np.mean(vals)
 
             if val > max_move[1]:
@@ -170,8 +205,8 @@ class MachinePlayer(Player):
         empty_slots = []
         for i in range(len(rewards_table)):
             for j in range(len(rewards_table[i])):
-                if board.can_place([i,j]):
-                    empty_slots.append([i,j])
+                if board.can_place([i, j]):
+                    empty_slots.append([i, j])
                     if rewards_table[i][j] > prob_max:
                         position = [i, j]
                         prob_max = rewards_table[i][j]
