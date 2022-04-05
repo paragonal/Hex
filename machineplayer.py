@@ -44,19 +44,17 @@ class MachinePlayer(Player):
 
         self.branching_factor = 1
         self.tree_discount_factor = 0.95
-        self.MCTS_iters = 10
+        self.MCTS_iters = 3
         self.calls = 0
         self.overlaps = 0
         self.positions_evaled = 0
-        # self.model.summary()
 
     def make_model(self):
         model = Sequential()
         model.add(Dense(self.board_size ** 2, input_dim=self.board_size ** 2))
-        model.add(Dense(self.board_size ** 3))
-        model.add(Dense(self.board_size ** 3, activation='tanh'))
-        model.add(Dense(self.board_size ** 3, activation='tanh'))
-        model.add(Dense(self.board_size ** 3))
+        model.add(Dense(self.board_size ** 2, activation='tanh'))
+        model.add(Dense(self.board_size ** 2, activation='tanh'))
+        model.add(Dense(self.board_size ** 2, activation='tanh'))
         model.add(Dense(1, activation='tanh'))
         model.compile(loss="mean_squared_error",
                       optimizer=tf.keras.optimizers.SGD(lr=self.learning_rate))
@@ -66,11 +64,10 @@ class MachinePlayer(Player):
     def eval_node_network(self, board, active_color, depth, max_depth, branching_factor):
         self.positions_evaled+=1
         # print(board)
-        # print("evaled ", self.positions_evaled)
         if board.check_win('black'):
-            return -1
-        if board.check_win('white'):
             return 1
+        if board.check_win('white'):
+            return -1
 
         if depth == max_depth:
             return self.model.predict(np.array([board.get_integer_representation().flatten()]))[0]
@@ -115,11 +112,10 @@ class MachinePlayer(Player):
             temp = board.clone()
             temp.place(move, self.color)
             vals.append(self.eval_node_network(temp, self.color, 0, max_depth, branching_factor))
-
         if self.color == 'black':
-            return board.get_legal_moves()[np.argmin(vals)]
-        else:
             return board.get_legal_moves()[np.argmax(vals)]
+        else:
+            return board.get_legal_moves()[np.argmin(vals)]
 
     def evaluate_moves(self, board, moves, active_color):
         to_eval = []
@@ -142,7 +138,7 @@ class MachinePlayer(Player):
             return 1
 
         v = MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()]
-        if len(v) > 10 and np.std(v) < .1:
+        if len(v) > 3 and np.std(v) < .1:
             self.overlaps += 1
             MachinePlayer.solved_positions[str(board.get_integer_representation())] = (np.mean(v), np.std(v))
             return np.mean(v)
@@ -172,7 +168,7 @@ class MachinePlayer(Player):
     def get_move_MCTS(self, board):
         max_move = (None, -2)  # tuples with the move and eval
         min_move = (None, 2)
-
+        i = 0
         for move in board.get_legal_moves():
             vals = []
             # do a bunch of fully random searches from root node to evaluate it

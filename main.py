@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from LiteModel import LiteModel
 from board import *
 from machineplayer import MachinePlayer
@@ -10,9 +12,10 @@ import math
 import tensorflow as tf
 from keras.models import load_model
 
-# Training on a 5x5
+
+# Training on a 11x11
 def generate_MCTS_table():
-    size = 4
+    size = 7
     renderer = Hex_Renderer(height=size * 30 * 2, width=(2 + size) * 30)
 
     white_wins = 0
@@ -20,17 +23,14 @@ def generate_MCTS_table():
     p1 = MachinePlayer('black', board_size=size)
     p2 = MachinePlayer('white', board_size=size)
     for i in range(5000):
-        black_win = False
 
         board = Board(size=size)
         renderer.update_hexes(board.tiles)
         running = True
         while running:
-            # sleep(.5)
             board.place(p1.get_move_MCTS(board), p1.color)
             renderer.update_hexes(board.tiles)
             if board.check_win(p1.color):
-                black_win = True
                 black_wins += 1
                 print(p1.color + " wins!")
                 running = False
@@ -53,21 +53,84 @@ def generate_MCTS_table():
     text_file.close()
 
 
-def play_sample_games(p1, p2):
+def neural_training_loop(size, swap_file, solver_file, episodes=10, epochs=50):
+    renderer = Hex_Renderer(height=size * 30 * 2, width=(2 + size) * 30)
 
+    white_wins = 0
+    black_wins = 0
+
+    # convert to LiteModel for faster evaluation #
+    p1 = MachinePlayer('black', board_size=size)
+    p1.model.save(swap_file)
+    ##
+
+    for epoch in range(epochs):
+        # Reload models for the new epoch
+        p1 = load_machine_player(swap_file, 'black', size)
+        p2 = load_machine_player(swap_file, 'white', size)
+
+        # Reset our training data
+        position_lookup_table = defaultdict(lambda: [])
+
+        for game in range(episodes):
+            positions = []
+
+            board = Board(size=size)
+            renderer.update_hexes(board.tiles)
+            running = True
+            black_won = False
+            while running:
+                board.place(p1.get_move_network(board, max_depth=5, branching_factor=1), p1.color)
+                print("Board eval: ", p1.model.predict_single(board.get_integer_representation().flatten()))
+                positions.append(board.get_integer_representation())
+                renderer.update_hexes(board.tiles)
+                if board.check_win(p1.color):
+                    black_won = True
+                    black_wins += 1
+                    print(p1.color + " wins!")
+                    running = False
+
+                if running:
+                    board.place(p2.get_move_network(board, max_depth=5, branching_factor=1), p2.color)
+                    positions.append(board.get_integer_representation())
+                    renderer.update_hexes(board.tiles)
+
+                if board.check_win(p2.color):
+                    print(p2.color + " wins!")
+                    running = False
+                    white_wins += 1
+
+            val = 1 if black_won else -1
+            position_evals = val * np.array([p1.gamma ** (len(positions) - i) for i in range(len(positions))])
+            for j in range(len(positions)):
+                position_lookup_table[positions[j].tostring()] = position_evals[j]
+
+            print("White wins: %d, Black Wins: %d" % (white_wins, black_wins))
+            renderer.kill()
+        solved_positions = {}
+        for key in position_lookup_table.keys():
+            solved_positions[key] = (np.average(position_lookup_table[key]), np.std(position_lookup_table[key]))
+        text_file = open(solver_file, "wt")
+        text_file.write(str(solved_positions))
+        text_file.close()
+        train_model(swap_file, solver_file)
+
+
+
+def play_sample_games(p1, p2):
     size = 4
     renderer = Hex_Renderer(height=size * 30 * 2, width=(2 + size) * 30)
 
     white_wins = 0
     black_wins = 0
 
-    for i in range(10):
+    for i in range(100):
         board = Board(size=size)
         renderer.update_hexes(board.tiles)
         running = True
         while running:
             # board.place(p1.get_move_MCTS(board), p1.color)
-            board.place(p1.get_move_network(board, max_depth=3, branching_factor=3), p1.color)
+            board.place(p1.get_move_network(board, max_depth=50, branching_factor=1), p1.color)
             renderer.update_hexes(board.tiles)
             print("Board eval: ", p1.model.predict_single(board.get_integer_representation().flatten()))
             if board.check_win(p1.color):
@@ -77,8 +140,11 @@ def play_sample_games(p1, p2):
 
             if running:
                 board.place(p2.get_move_MCTS(board), p2.color)
-                # board.place(p2.get_move_network(board, max_depth=5, branching_factor=1), p2.color)
+                # board.place(p2.get_move_network(board, max_depth=3, branching_factor=3), p2.color)
+                # board.place((int(input()), int(input())), p2.color)
+                renderer.kill()
                 renderer.update_hexes(board.tiles)
+
             sleep(1)
             if board.check_win(p2.color):
                 print(p2.color + " wins!")
@@ -89,9 +155,9 @@ def play_sample_games(p1, p2):
         renderer.kill()
 
 
-def train_model():
+def train_model(model_file, solver_file):
     model = MachinePlayer('white', board_size=4)
-    boards, scores = parse_solver_file("solved_positions2.txt")
+    boards, scores = parse_solver_file(solver_file)
     training_indices = random.sample([i for i in range(len(boards))], int(len(boards)))
     testing_indices = random.sample([i for i in range(len(boards))], int(len(boards)))
 
@@ -119,25 +185,28 @@ def train_model():
     print("Training Data dims: ", np.shape(training_inputs))
     print("training data bias: ", np.average(training_outputs))
 
-    model.model.fit(x=training_inputs, y=training_outputs, validation_split=0.1, epochs=100)
+    model.model.fit(x=training_inputs, y=training_outputs, validation_split=0.1, epochs=150)
 
     predicted = model.model.predict(testing_inputs)
     print("done training")
     print(predicted[:10])
     print(testing_outputs[:10])
-    model.model.save("value_network")
+    model.model.save(model_file)
 
-def load_machine_player(filename, side):
-    player = MachinePlayer(side, board_size=4)
+
+def load_machine_player(filename, side, size):
+    player = MachinePlayer(side, board_size=size)
     # player.model = load_model(filename)
     player.model = LiteModel.from_keras_model(load_model(filename))
+    load_model(filename).summary()
     return player
 
+
 if __name__ == '__main__':
-    #generate_MCTS_table()
-    #train_model()
+    # generate_MCTS_table()
+    # train_model()
+    neural_training_loop(7, "training_value_network", "training_solved_positions.txt")
 
-    p1 = load_machine_player("value_network", 'black')
-    p2 = load_machine_player("value_network", 'white')
-    play_sample_games(p1, p2)
-
+    # p1 = load_machine_player("value_network", 'black')
+    # p2 = load_machine_player("value_network", 'white')
+    # play_sample_games(p1, p2)
