@@ -62,7 +62,7 @@ class MachinePlayer(Player):
 
     # evaluate a node with iterative deepening down to a certain position
     def eval_node_network(self, board, active_color, depth, max_depth, branching_factor):
-        self.positions_evaled+=1
+        self.positions_evaled += 1
         # print(board)
         if board.check_win('black'):
             return 1
@@ -91,6 +91,7 @@ class MachinePlayer(Player):
         else:
             moves = [board.get_legal_moves()[i] for i in candidate_indices]
 
+        moves = self.select_moves_network(moves, 1)
         for move in moves:
             temp = board.clone()
             temp.place(move, next_color)
@@ -98,7 +99,7 @@ class MachinePlayer(Player):
 
         for board in boards:
             values.append(self.tree_discount_factor
-                          * self.eval_node_network(board, next_color, depth+1, max_depth, branching_factor))
+                          * self.eval_node_network(board, next_color, depth + 1, max_depth, branching_factor))
 
         if active_color == 'white':
             return max(values)
@@ -123,7 +124,7 @@ class MachinePlayer(Player):
             temp = board.clone()
             temp.place(move, active_color)
             to_eval.append(temp.get_integer_representation().flatten())
-        return -self.model.predict(np.array(to_eval)) #TODO take out this negative when signs fixed on lookup table
+        return -self.model.predict(np.array(to_eval))  # TODO take out this negative when signs fixed on lookup table
 
     # Use a Monte Carlo Search Tree to get down to a final position to evaluate a node's value
     # black win = eval -1
@@ -157,6 +158,10 @@ class MachinePlayer(Player):
         MachinePlayer.position_lookup_table[board.get_integer_representation().tostring()].append(np.mean(values))
 
         return np.mean(values)
+
+    # select n moves from moves list
+    def select_moves_network(self, moves, n):
+        return sample(moves, n)
 
     # select our moves for MCTS, this will eventually be based on the network
     def select_moves_MCTS(self, board, n):
