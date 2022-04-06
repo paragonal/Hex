@@ -203,9 +203,9 @@ def load_machine_player(filename, side, size):
 
 
 if __name__ == '__main__':
-    # generate_MCTS_table()
+    generate_MCTS_table()
     # train_model()
-    neural_training_loop(7, "training_value_network", "training_solved_positions.txt")
+    # neural_training_loop(7, "training_value_network", "training_solved_positions.txt")
 
     # p1 = load_machine_player("value_network", 'black')
     # p2 = load_machine_player("value_network", 'white')
