@@ -53,7 +53,7 @@ def generate_MCTS_table():
     text_file.close()
 
 
-def neural_training_loop(size, swap_file, solver_file, episodes=10, epochs=50):
+def neural_training_loop(size, swap_file, solver_file, episodes=100, epochs=50):
     renderer = Hex_Renderer(height=size * 30 * 2, width=(2 + size) * 30)
 
     white_wins = 0
@@ -64,13 +64,11 @@ def neural_training_loop(size, swap_file, solver_file, episodes=10, epochs=50):
     p1.model.save(swap_file)
     ##
 
+    position_lookup_table = defaultdict(lambda: [])
     for epoch in range(epochs):
         # Reload models for the new epoch
         p1 = load_machine_player(swap_file, 'black', size)
         p2 = load_machine_player(swap_file, 'white', size)
-
-        # Reset our training data
-        position_lookup_table = defaultdict(lambda: [])
 
         for game in range(episodes):
             positions = []
@@ -81,8 +79,8 @@ def neural_training_loop(size, swap_file, solver_file, episodes=10, epochs=50):
             black_won = False
             while running:
                 board.place(p1.get_move_network(board, max_depth=5, branching_factor=4), p1.color)
-                print("Board eval: ", p1.model.predict_single(board.get_integer_representation().flatten()))
-                positions.append(board.get_integer_representation())
+                # print("Board eval: ", p1.model.predict_single(board.get_integer_representation().flatten()))
+                positions.append(str(board.get_integer_representation()))
                 renderer.update_hexes(board.tiles)
                 if board.check_win(p1.color):
                     black_won = True
@@ -92,7 +90,7 @@ def neural_training_loop(size, swap_file, solver_file, episodes=10, epochs=50):
 
                 if running:
                     board.place(p2.get_move_network(board, max_depth=5, branching_factor=4), p2.color)
-                    positions.append(board.get_integer_representation())
+                    positions.append(str(board.get_integer_representation()))
                     renderer.update_hexes(board.tiles)
 
                 if board.check_win(p2.color):
@@ -103,7 +101,7 @@ def neural_training_loop(size, swap_file, solver_file, episodes=10, epochs=50):
             val = 1 if black_won else -1
             position_evals = val * np.array([p1.gamma ** (len(positions) - i) for i in range(len(positions))])
             for j in range(len(positions)):
-                position_lookup_table[positions[j].tostring()] = position_evals[j]
+                position_lookup_table[positions[j]].append(position_evals[j])
 
             print("White wins: %d, Black Wins: %d" % (white_wins, black_wins))
             renderer.kill()
@@ -114,7 +112,7 @@ def neural_training_loop(size, swap_file, solver_file, episodes=10, epochs=50):
         text_file.write(str(solved_positions))
         text_file.close()
         train_model(swap_file, solver_file)
-
+        print("Positions Evalled: %d" % len(position_lookup_table.keys()))
 
 
 def play_sample_games(p1, p2):
